@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -10,6 +10,7 @@ import {
   WeekRecord,
   DaySchedule,
   DayAttendance,
+  ALL_DAYS,
 } from "@/types";
 import {
   autoWorkStart,
@@ -19,6 +20,7 @@ import {
   validateSession,
   getISOWeekKey,
   weekLabel,
+  getDailyAutoWork,
 } from "@/lib/timeUtils";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -30,7 +32,7 @@ function emptySchedules(): DaySchedule[] {
   return DAYS.map((day) => ({ day, lectureStart: "", lectureEnd: "" }));
 }
 function emptyAttendances(): DayAttendance[] {
-  return DAYS.map((day) => ({
+  return ALL_DAYS.map((day) => ({
     day,
     morningIn: "",
     morningOut: "",
@@ -299,6 +301,7 @@ export default function HomePage() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [allWeeks, setAllWeeks] = useState<Record<string, WeekRecord>>({});
   const [viewKey, setViewKey] = useState<string>("");
+  const [scheduleTab, setScheduleTab] = useState<"lecture" | "working">("lecture");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -413,15 +416,15 @@ export default function HomePage() {
   const sortedKeys = Object.keys(allWeeks).sort();
   const viewIdx = sortedKeys.indexOf(viewKey);
 
-  const dailyTotals = DAYS.map((day) => {
-    const a = currentWeek.attendances.find((x) => x.day === day)!;
+  const dailyTotals = ALL_DAYS.map((day: DayName) => {
+    const a = currentWeek.attendances.find((x) => x.day === day);
     if (!a) return 0;
     return (
       calcDuration(a.morningIn, a.morningOut) +
       calcDuration(a.afternoonIn, a.afternoonOut)
     );
   });
-  const weeklyTotal = dailyTotals.reduce((s, v) => s + v, 0);
+  const weeklyTotal = dailyTotals.reduce((s: number, v: number) => s + v, 0);
   const diff = weeklyTotal - targetMinutes;
   const progressPct = Math.min(100, (weeklyTotal / targetMinutes) * 100);
 
@@ -433,6 +436,22 @@ export default function HomePage() {
         : diff === 0
           ? "var(--success)"
           : "var(--sky)";
+
+  // ── Weekend Distribution Logic ────────────────────────────────
+  const monFriWorkMins = DAYS.reduce((sum, day) => {
+    const sch = currentWeek.schedules.find((s) => s.day === day);
+    return sum + getDailyAutoWork(sch).totalMins;
+  }, 0);
+
+  let remaining = Math.max(0, targetMinutes - monFriWorkMins);
+  const satMins = Math.min(8 * 60, remaining);
+  remaining -= satMins;
+  const sunMins = Math.min(8 * 60, remaining);
+
+  const weekendSchedule = [
+    { day: "Saturday", short: "Sat", workMins: satMins },
+    { day: "Sunday", short: "Sun", workMins: sunMins },
+  ];
 
   // ── Week navigation ─────────────────────────────────────────
   const goToPrev = useCallback(() => {
@@ -732,19 +751,19 @@ export default function HomePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {DAYS.map((day, idx) => {
+                  {ALL_DAYS.map((day: DayName, idx: number) => {
                     const a = currentWeek.attendances.find(
                       (x) => x.day === day
-                    )!;
+                    );
                     const total = dailyTotals[idx];
                     const errMorn = validateSession(
-                      a?.morningIn,
-                      a?.morningOut,
+                      a?.morningIn || "",
+                      a?.morningOut || "",
                       "AM"
                     );
                     const errAftn = validateSession(
-                      a?.afternoonIn,
-                      a?.afternoonOut,
+                      a?.afternoonIn || "",
+                      a?.afternoonOut || "",
                       "PM"
                     );
 
@@ -938,18 +957,41 @@ export default function HomePage() {
             SCHEDULE TABLE
         ══════════════════════════════════════════════════════ */}
         <section>
-          <p className="section-title">
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "var(--success)",
-                display: "inline-block",
-              }}
-            />
-            Schedule
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
+            <p className="section-title" style={{ marginBottom: 0 }}>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--success)",
+                  display: "inline-block",
+                }}
+              />
+              Schedule
+            </p>
+
+            <div style={{ display: "flex", gap: "4px", background: "var(--surface-2)", padding: "4px", borderRadius: "10px", border: "1px solid var(--border)" }}>
+              <button
+                onClick={() => setScheduleTab("lecture")}
+                style={{
+                  padding: "4px 12px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer",
+                  background: scheduleTab === "lecture" ? "var(--surface)" : "transparent",
+                  color: scheduleTab === "lecture" ? "var(--primary)" : "var(--text-muted)",
+                  boxShadow: scheduleTab === "lecture" ? "var(--shadow-sm)" : "none",
+                }}
+              >Lecture</button>
+              <button
+                onClick={() => setScheduleTab("working")}
+                style={{
+                  padding: "4px 12px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer",
+                  background: scheduleTab === "working" ? "var(--surface)" : "transparent",
+                  color: scheduleTab === "working" ? "var(--primary)" : "var(--text-muted)",
+                  boxShadow: scheduleTab === "working" ? "var(--shadow-sm)" : "none",
+                }}
+              >Working (Auto)</button>
+            </div>
+          </div>
           <p
             style={{
               fontSize: "0.75rem",
@@ -961,93 +1003,242 @@ export default function HomePage() {
             buffer, until 00:00)
           </p>
 
-          <div className="app-card">
-            <div style={{ overflowX: "auto" }}>
-              <table className="app-table">
-                <thead>
-                  <tr>
-                    <th
-                      className="day-col"
-                      rowSpan={2}
-                      style={{ verticalAlign: "middle" }}
-                    >
-                      Day
-                    </th>
-                    <th colSpan={2} className="group-lecture">
-                      Lecture
-                    </th>
-                    <th colSpan={2} className="group-work">
-                      Work (Auto)
-                    </th>
-                  </tr>
-                  <tr>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Work Start</th>
-                    <th>Work End</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DAYS.map((day) => {
-                    const sch = currentWeek.schedules.find(
-                      (s) => s.day === day
-                    )!;
-                    const hasSchedule =
-                      !!sch?.lectureStart && !!sch?.lectureEnd;
-                    const workStart = hasSchedule
-                      ? autoWorkStart(sch.lectureEnd)
-                      : "";
+          {scheduleTab === "lecture" && (
+            <div className="app-card">
+              <div style={{ overflowX: "auto" }}>
+                <table className="app-table">
+                  <thead>
+                    <tr>
+                      <th
+                        className="day-col"
+                        rowSpan={2}
+                        style={{ verticalAlign: "middle", width: "120px" }}
+                      >
+                        Day
+                      </th>
+                      <th colSpan={2} className="group-lecture">
+                        Lecture
+                      </th>
+                      <th colSpan={2} className="group-work">
+                        Work (Auto)
+                      </th>
+                    </tr>
+                    <tr>
+                      <th>Start</th>
+                      <th>End</th>
+                      <th>Work Start</th>
+                      <th>Work End</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DAYS.map((day) => {
+                      const sch = currentWeek.schedules.find(
+                        (s) => s.day === day
+                      );
+                      const autoCalc = getDailyAutoWork(sch);
 
-                    return (
-                      <tr key={day}>
-                        <td className="day-col">{DAY_SHORT[day]}</td>
-                        <td>
-                          <TimeInput
-                            value={sch?.lectureStart ?? ""}
-                            onChange={(v) =>
-                              updateSchedule(day, "lectureStart", v)
-                            }
-                          />
-                        </td>
-                        <td>
-                          <TimeInput
-                            value={sch?.lectureEnd ?? ""}
-                            onChange={(v) =>
-                              updateSchedule(day, "lectureEnd", v)
-                            }
-                          />
-                        </td>
-                        <td>
-                          {hasSchedule ? (
-                            <span className="auto-badge">{workStart}</span>
-                          ) : (
-                            <span style={{ color: "var(--text-subtle)" }}>–</span>
+                      return (
+                        <React.Fragment key={day}>
+                          {autoCalc.hasMorning && (
+                            <tr>
+                              <td className="day-col">{DAY_SHORT[day]} <span style={{ fontSize: "0.65rem", color: "var(--text-subtle)", fontWeight: "normal", marginLeft: 4 }}>(Morning)</span></td>
+                              <td>
+                                {/* Disabled input for morning row so it doesn't look like a second schedule */}
+                                <TimeInput value="" onChange={() => { }} disabled />
+                              </td>
+                              <td>
+                                <TimeInput value="" onChange={() => { }} disabled />
+                              </td>
+                              <td>
+                                <span className="auto-badge" style={{ background: "var(--success-soft)", color: "var(--success)" }}>{autoCalc.morningStart}</span>
+                              </td>
+                              <td>
+                                <span className="auto-badge" style={{ background: "var(--success-soft)", color: "var(--success)" }}>{autoCalc.morningEnd}</span>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td>
-                          {hasSchedule ? (
-                            <span className="auto-badge">00:00</span>
+                          <tr style={{ borderTop: autoCalc.hasMorning ? "none" : undefined }}>
+                            <td className="day-col">
+                              {DAY_SHORT[day]}
+                              {autoCalc.hasMorning && <span style={{ fontSize: "0.65rem", color: "var(--text-subtle)", fontWeight: "normal", marginLeft: 4 }}>(Evening)</span>}
+                            </td>
+                            <td>
+                              <TimeInput
+                                value={sch?.lectureStart ?? ""}
+                                onChange={(v) =>
+                                  updateSchedule(day, "lectureStart", v)
+                                }
+                              />
+                            </td>
+                            <td>
+                              <TimeInput
+                                value={sch?.lectureEnd ?? ""}
+                                onChange={(v) =>
+                                  updateSchedule(day, "lectureEnd", v)
+                                }
+                              />
+                            </td>
+                            <td>
+                              {autoCalc.hasSchedule ? (
+                                <span className="auto-badge">{autoCalc.eveningStart}</span>
+                              ) : (
+                                <span style={{ color: "var(--text-subtle)" }}>–</span>
+                              )}
+                            </td>
+                            <td>
+                              {autoCalc.hasSchedule ? (
+                                <span className="auto-badge">{autoCalc.eveningEnd}</span>
+                              ) : (
+                                <span style={{ color: "var(--text-subtle)" }}>–</span>
+                              )}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td
+                        className="day-col"
+                        style={{ fontWeight: 700, color: "var(--text-muted)", paddingTop: 10, paddingBottom: 10 }}
+                      >
+                        Total
+                      </td>
+                      <td colSpan={2} />
+                      <td colSpan={2} style={{ textAlign: "center" }}>
+                        {(() => {
+                          const totalMins = DAYS.reduce((sum, day) => {
+                            const sch = currentWeek.schedules.find((s) => s.day === day);
+                            return sum + getDailyAutoWork(sch).totalMins;
+                          }, 0);
+                          return totalMins > 0 ? (
+                            <span
+                              style={{
+                                fontFamily: "ui-monospace, 'Cascadia Code', monospace",
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
+                                color: "var(--primary)",
+                              }}
+                            >
+                              {minutesToTime(totalMins)}
+                            </span>
                           ) : (
-                            <span style={{ color: "var(--text-subtle)" }}>–</span>
+                            <span style={{ color: "var(--text-subtle)", fontSize: "0.8rem" }}>—</span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+              </div>
+              <div
+                style={{
+                  padding: "8px 16px",
+                  borderTop: "1px solid var(--border-soft)",
+                  fontSize: "0.72rem",
+                  color: "var(--text-subtle)",
+                }}
+              >
+                💡 Work start = lecture end + 1 hour buffer · Work end = 00:00
+              </div>
+            </div>
+          )}
+
+          {scheduleTab === "working" && (
+            <div className="app-card">
+              <div style={{ overflowX: "auto" }}>
+                <table className="app-table">
+                  <thead>
+                    <tr>
+                      <th className="day-col" style={{ width: "120px" }}>Day</th>
+                      <th>Work Start</th>
+                      <th>Work End</th>
+                      <th style={{ textAlign: "right", color: "var(--primary)", paddingRight: "16px" }}>Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DAYS.map((day) => {
+                      const sch = currentWeek.schedules.find((s) => s.day === day);
+                      const autoCalc = getDailyAutoWork(sch);
+
+                      return (
+                        <React.Fragment key={day}>
+                          {autoCalc.hasMorning && (
+                            <tr>
+                              <td className="day-col">{DAY_SHORT[day]} <span style={{ fontSize: "0.65rem", color: "var(--text-subtle)", fontWeight: "normal", marginLeft: 4 }}>(Morning)</span></td>
+                              <td><span className="auto-badge" style={{ background: "var(--success-soft)", color: "var(--success)" }}>{autoCalc.morningStart}</span></td>
+                              <td><span className="auto-badge" style={{ background: "var(--success-soft)", color: "var(--success)" }}>{autoCalc.morningEnd}</span></td>
+                              <td style={{ textAlign: "right", paddingRight: "16px", fontWeight: 500, fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}>
+                                {minutesToTime(autoCalc.morningMins)}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <tr style={{ borderTop: autoCalc.hasMorning ? "none" : undefined }}>
+                            <td className="day-col">
+                              {DAY_SHORT[day]}
+                              {autoCalc.hasMorning && <span style={{ fontSize: "0.65rem", color: "var(--text-subtle)", fontWeight: "normal", marginLeft: 4 }}>(Evening)</span>}
+                            </td>
+                            <td>
+                              {autoCalc.hasSchedule ? <span className="auto-badge">{autoCalc.eveningStart}</span> : <span style={{ color: "var(--text-subtle)" }}>–</span>}
+                            </td>
+                            <td>
+                              {autoCalc.hasSchedule ? <span className="auto-badge">{autoCalc.eveningEnd}</span> : <span style={{ color: "var(--text-subtle)" }}>–</span>}
+                            </td>
+                            <td style={{ textAlign: "right", paddingRight: "16px", fontWeight: 500, fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}>
+                              {autoCalc.eveningMins > 0 ? minutesToTime(autoCalc.eveningMins) : <span style={{ color: "var(--text-subtle)" }}>–</span>}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Weekend allocation */}
+                    {weekendSchedule.map(({ day, short, workMins }) => {
+                      const endTime = workMins > 0 ? minutesToTime(8 * 60 + workMins) : "–";
+                      return (
+                        <tr key={day} style={{ background: workMins > 0 ? "var(--primary-soft)" : "transparent" }}>
+                          <td className="day-col" style={{ color: workMins > 0 ? "var(--primary)" : "var(--text-muted)" }}>{short}</td>
+                          <td>
+                            {workMins > 0 ? <span className="auto-badge">08:00</span> : <span style={{ color: "var(--text-subtle)" }}>–</span>}
+                          </td>
+                          <td>
+                            {workMins > 0 ? <span className="auto-badge">{endTime}</span> : <span style={{ color: "var(--text-subtle)", fontStyle: "italic", fontSize: "0.75rem" }}>Rest day</span>}
+                          </td>
+                          <td style={{ textAlign: "right", paddingRight: "16px", fontWeight: 700, color: workMins > 0 ? "var(--primary)" : "var(--text-subtle)", fontFamily: "ui-monospace, 'Cascadia Code', monospace" }}>
+                            {workMins > 0 ? minutesToTime(workMins) : "–"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="day-col" colSpan={3} style={{ fontWeight: 700, color: "var(--text-muted)", paddingTop: 10, paddingBottom: 10 }}>Total Weekly Auto-Schedule</td>
+                      <td style={{ textAlign: "right", paddingRight: "16px" }}>
+                        <span style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace", fontWeight: 700, fontSize: "0.9rem", color: "var(--primary)" }}>
+                          {minutesToTime(monFriWorkMins + satMins + sunMins)}
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div
+                style={{
+                  padding: "8px 16px",
+                  borderTop: "1px solid var(--border-soft)",
+                  fontSize: "0.72rem",
+                  color: "var(--text-subtle)",
+                  display: "flex",
+                  justifyContent: "space-between"
+                }}
+              >
+                <span>💡 Mon-Fri: Auto-evening after lectures. Morning (08:00-11:30) added if lecture starts ≥ 12:00.</span>
+                <span>Sat/Sun: Max 8h/day to reach {formatDuration(targetMinutes)}</span>
+              </div>
             </div>
-            <div
-              style={{
-                padding: "8px 16px",
-                borderTop: "1px solid var(--border-soft)",
-                fontSize: "0.72rem",
-                color: "var(--text-subtle)",
-              }}
-            >
-              💡 Work start = lecture end + 1 hour buffer · Work end = 00:00
-            </div>
-          </div>
+          )}
         </section>
 
         {/* Footer */}

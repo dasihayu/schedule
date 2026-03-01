@@ -5,7 +5,9 @@ export type DayName =
     | "Tuesday"
     | "Wednesday"
     | "Thursday"
-    | "Friday";
+    | "Friday"
+    | "Saturday"
+    | "Sunday";
 
 export const DAYS: DayName[] = [
     "Monday",
@@ -15,12 +17,24 @@ export const DAYS: DayName[] = [
     "Friday",
 ];
 
+export const ALL_DAYS: DayName[] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
+
 export const DAY_SHORT: Record<DayName, string> = {
     Monday: "Mon",
     Tuesday: "Tue",
     Wednesday: "Wed",
     Thursday: "Thu",
     Friday: "Fri",
+    Saturday: "Sat",
+    Sunday: "Sun",
 };
 
 // ─── Schedule (lecture timetable per day) ──────────────────────────────────

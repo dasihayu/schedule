@@ -1,3 +1,5 @@
+import { DaySchedule } from "@/types";
+
 // ─── Time math ───────────────────────────────────────────────
 
 /** "HH:mm" → minutes from midnight, null if invalid */
@@ -44,6 +46,75 @@ export function autoWorkStart(lectureEnd: string): string {
 export function formatDuration(minutes: number): string {
     if (minutes <= 0) return "0:00";
     return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+export type DailyAutoWork = {
+    hasSchedule: boolean;
+    hasMorning: boolean;
+    morningStart: string;
+    morningEnd: string;
+    morningMins: number;
+    eveningStart: string;
+    eveningEnd: string;
+    eveningMins: number;
+    totalMins: number;
+};
+
+/** Calculates automatic daily hours, caching at 8 hours max (480 mins) */
+export function getDailyAutoWork(sch: DaySchedule | undefined): DailyAutoWork {
+    if (!sch?.lectureStart || !sch?.lectureEnd) {
+        return {
+            hasSchedule: false,
+            hasMorning: false,
+            morningStart: "",
+            morningEnd: "",
+            morningMins: 0,
+            eveningStart: "",
+            eveningEnd: "",
+            eveningMins: 0,
+            totalMins: 0,
+        };
+    }
+
+    const hasMorning = sch.lectureStart >= "12:00";
+    const morningStart = hasMorning ? "08:00" : "";
+    const morningEnd = hasMorning ? "11:30" : "";
+    const morningMins = hasMorning ? calcDuration("08:00", "11:30") : 0; // 210
+
+    const eveningStart = autoWorkStart(sch.lectureEnd);
+    let eveningMins = calcDuration(eveningStart, "00:00");
+
+    let totalMins = morningMins + eveningMins;
+    let eveningEnd = "00:00";
+
+    // Cap at 8 hours (480 mins)
+    if (totalMins > 480) {
+        eveningMins = Math.max(0, 480 - morningMins);
+        totalMins = 480;
+
+        if (eveningMins > 0) {
+            const base = timeToMinutes(eveningStart) || 0;
+            if (base + eveningMins >= 1440) {
+                eveningEnd = "00:00";
+            } else {
+                eveningEnd = minutesToTime(base + eveningMins);
+            }
+        } else {
+            eveningEnd = eveningStart;
+        }
+    }
+
+    return {
+        hasSchedule: true,
+        hasMorning,
+        morningStart,
+        morningEnd,
+        morningMins,
+        eveningStart,
+        eveningEnd,
+        eveningMins,
+        totalMins,
+    };
 }
 
 /** Validate a login/logout pair. Returns error string or null. */
