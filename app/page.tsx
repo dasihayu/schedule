@@ -301,7 +301,7 @@ export default function HomePage() {
   const [viewKey, setViewKey] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Redirect if not authenticated ──────────────────────────
   useEffect(() => {

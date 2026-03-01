@@ -107,3 +107,18 @@ export function prevWeekKey(weekKey: string): string {
     prev.setUTCDate(mon.getUTCDate() - 1); // last day of prev week
     return getISOWeekKey(new Date(prev.getUTCFullYear(), prev.getUTCMonth(), prev.getUTCDate()));
 }
+
+/** Validate and sum a list of work sessions (used by WeeklyTable). */
+export function validateAndCalcSessions(
+    sessions: Array<{ id: string; loginTime: string; logoutTime: string }>
+): { errors: string[]; totalMinutes: number } {
+    const errors: string[] = [];
+    let totalMinutes = 0;
+    sessions.forEach((s, idx) => {
+        const err = validateSession(s.loginTime, s.logoutTime, `Sesi ${idx + 1}`);
+        if (err) errors.push(err);
+        else totalMinutes += calcDuration(s.loginTime, s.logoutTime);
+    });
+    return { errors, totalMinutes };
+}
+
