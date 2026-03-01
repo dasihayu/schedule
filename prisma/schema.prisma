@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id          String       @id @default(cuid())
+  name        String
+  email       String       @unique
+  password    String
+  createdAt   DateTime     @default(now())
+  weekRecords WeekRecord[]
+}
+
+model WeekRecord {
+  id               String   @id @default(cuid())
+  weekKey          String   // e.g. "2026-W09"
+  carryOverMinutes Int      @default(0)
+  schedules        Json     @default("[]")
+  attendances      Json     @default("[]")
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, weekKey])
+}

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   DayName,
   DAYS,
   DAY_SHORT,
-  AppStorage,
   WeekRecord,
   DaySchedule,
   DayAttendance,
@@ -18,7 +19,6 @@ import {
   validateSession,
   getISOWeekKey,
   weekLabel,
-  prevWeekKey,
 } from "@/lib/timeUtils";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -293,64 +293,109 @@ function StatusPill({
 
 // ─── Main page ────────────────────────────────────────────────
 export default function HomePage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [allWeeks, setAllWeeks] = useState<Record<string, WeekRecord>>({});
   const [viewKey, setViewKey] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── Load from localStorage ──────────────────────────────────
+  // ── Redirect if not authenticated ──────────────────────────
   useEffect(() => {
-    const todayKey = getISOWeekKey();
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const stored: AppStorage = JSON.parse(raw);
-        // Apply saved theme
-        if (stored.theme) setTheme(stored.theme);
-        const weeks = stored.weeks || {};
-
-        // Auto-detect & create current week if not exists
-        if (!weeks[todayKey]) {
-          // Find most recent stored week to compute carry-over
-          const sortedKeys = Object.keys(weeks).sort();
-          const latestKey = sortedKeys[sortedKeys.length - 1];
-          let carryOver = 0;
-          if (latestKey) {
-            const lw = weeks[latestKey];
-            const lwTarget = BASE_TARGET + lw.carryOverMinutes;
-            const lwTotal = lw.attendances.reduce((sum, a) => {
-              return (
-                sum +
-                calcDuration(a.morningIn, a.morningOut) +
-                calcDuration(a.afternoonIn, a.afternoonOut)
-              );
-            }, 0);
-            carryOver = Math.max(0, lwTarget - lwTotal);
-          }
-          weeks[todayKey] = createWeek(todayKey, carryOver);
-        }
-        setAllWeeks(weeks);
-      } else {
-        // First launch → create current week
-        setAllWeeks({ [todayKey]: createWeek(todayKey, 0) });
-      }
-    } catch (_) {
-      setAllWeeks({ [todayKey]: createWeek(todayKey, 0) });
+    if (status === "unauthenticated") {
+      router.push("/login");
     }
-    setViewKey(todayKey);
-    setLoaded(true);
+  }, [status, router]);
+
+  // ── Load theme from localStorage ────────────────────────────
+  useEffect(() => {
+    const t = localStorage.getItem("worktrack_theme") as "dark" | "light" | null;
+    if (t) setTheme(t);
+    else if (window.matchMedia("(prefers-color-scheme: light)").matches) setTheme("light");
   }, []);
 
-  // ── Save to localStorage ────────────────────────────────────
+  // ── Load week data from API ──────────────────────────────────
   useEffect(() => {
-    if (!loaded) return;
-    const data: AppStorage = { weeks: allWeeks, theme };
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
-  }, [allWeeks, theme, loaded]);
+    if (status !== "authenticated") return;
 
-  // ── Apply theme to <html> ───────────────────────────────────
+    const todayKey = getISOWeekKey();
+
+    fetch("/api/weeks")
+      .then((r) => r.json())
+      .then(({ weeks: records }) => {
+        if (records && records.length > 0) {
+          // Convert API records → Record<string, WeekRecord>
+          const weeks: Record<string, WeekRecord> = {};
+          for (const rec of records) {
+            weeks[rec.weekKey] = {
+              weekKey: rec.weekKey,
+              carryOverMinutes: rec.carryOverMinutes,
+              schedules: Array.isArray(rec.schedules) ? rec.schedules : [],
+              attendances: Array.isArray(rec.attendances) ? rec.attendances : [],
+            };
+          }
+          // Create current week if not present (with carry-over)
+          if (!weeks[todayKey]) {
+            const sortedKeys = Object.keys(weeks).sort();
+            const latestKey = sortedKeys[sortedKeys.length - 1];
+            let carryOver = 0;
+            if (latestKey) {
+              const lw = weeks[latestKey];
+              const lwTarget = BASE_TARGET + lw.carryOverMinutes;
+              const lwTotal = lw.attendances.reduce((sum: number, a: DayAttendance) => {
+                return (
+                  sum +
+                  calcDuration(a.morningIn, a.morningOut) +
+                  calcDuration(a.afternoonIn, a.afternoonOut)
+                );
+              }, 0);
+              carryOver = Math.max(0, lwTarget - lwTotal);
+            }
+            weeks[todayKey] = createWeek(todayKey, carryOver);
+          }
+          setAllWeeks(weeks);
+        } else {
+          setAllWeeks({ [todayKey]: createWeek(todayKey, 0) });
+        }
+        setViewKey(todayKey);
+        setLoaded(true);
+      })
+      .catch(() => {
+        setAllWeeks({ [todayKey]: createWeek(todayKey, 0) });
+        setViewKey(todayKey);
+        setLoaded(true);
+      });
+  }, [status]);
+
+  // ── Save week to API (debounced 1.5s) ───────────────────────
+  const saveWeek = useCallback((weekKey: string, week: WeekRecord) => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      setSaving(true);
+      try {
+        await fetch("/api/weeks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            weekKey: week.weekKey,
+            carryOverMinutes: week.carryOverMinutes,
+            schedules: week.schedules,
+            attendances: week.attendances,
+          }),
+        });
+      } finally {
+        setSaving(false);
+      }
+    }, 1500);
+  }, []);
+
+  // ── Apply theme ──────────────────────────────────────────────
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("worktrack_theme", theme);
   }, [theme]);
 
   const toggleTheme = useCallback(
@@ -404,12 +449,13 @@ export default function HomePage() {
   // ── Updaters ────────────────────────────────────────────────
   const updateWeek = useCallback(
     (updater: (prev: WeekRecord) => WeekRecord) => {
-      setAllWeeks((prev) => ({
-        ...prev,
-        [viewKey]: updater(prev[viewKey] ?? createWeek(viewKey, 0)),
-      }));
+      setAllWeeks((prev) => {
+        const updated = updater(prev[viewKey] ?? createWeek(viewKey, 0));
+        saveWeek(viewKey, updated);
+        return { ...prev, [viewKey]: updated };
+      });
     },
-    [viewKey]
+    [viewKey, saveWeek]
   );
 
   const updateSchedule = useCallback(
@@ -499,7 +545,39 @@ export default function HomePage() {
               Track your weekly work hours · auto-saved
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* User info */}
+            {session?.user?.name && (
+              <span style={{
+                fontSize: "0.78rem",
+                color: "var(--text-muted)",
+                padding: "4px 10px",
+                background: "var(--surface-2)",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                maxWidth: 140,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}>
+                👤 {session.user.name}
+              </span>
+            )}
+
+            {/* Saving indicator */}
+            {saving && (
+              <span style={{
+                fontSize: "0.72rem",
+                color: "var(--text-subtle)",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}>
+                <div style={{ width: 8, height: 8, border: "1.5px solid var(--primary)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                Saving...
+              </span>
+            )}
+
             {!isCurrentWeek && (
               <button className="btn-week-nav" onClick={goToCurrent}>
                 Go to current
@@ -523,6 +601,22 @@ export default function HomePage() {
               }}
             >
               Reset
+            </button>
+            {/* Logout */}
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--danger)",
+                background: "var(--danger-soft)",
+                border: "1px solid color-mix(in srgb, var(--danger) 25%, transparent)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Sign Out
             </button>
           </div>
         </header>
