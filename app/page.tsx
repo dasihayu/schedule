@@ -29,10 +29,10 @@ const BASE_TARGET = 40 * 60; // minutes
 
 // ─── Default factories ────────────────────────────────────────
 function emptySchedules(): DaySchedule[] {
-  return DAYS.map((day) => ({ day, lectureStart: "", lectureEnd: "" }));
+  return DAYS.map((day: DayName) => ({ day, lectureStart: "", lectureEnd: "" }));
 }
 function emptyAttendances(): DayAttendance[] {
-  return ALL_DAYS.map((day) => ({
+  return ALL_DAYS.map((day: DayName) => ({
     day,
     morningIn: "",
     morningOut: "",
@@ -49,14 +49,15 @@ function createWeek(key: string, carryOver = 0): WeekRecord {
   };
 }
 
-// ─── 24-hour text input ───────────────────────────────────────
 function TimeInput({
   value,
   onChange,
+  onBlur,
   disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
+  onBlur?: (v: string) => void;
   disabled?: boolean;
 }) {
   const format = (raw: string) => {
@@ -71,8 +72,9 @@ function TimeInput({
       m = parseInt(v.slice(-2), 10) || 0;
     } else {
       h = parseInt(v, 10) || 0;
+      m = 0;
     }
-    if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59)
+    if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 99 && m >= 0 && m <= 59)
       return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
     return "";
   };
@@ -89,6 +91,7 @@ function TimeInput({
       onBlur={(e) => {
         const formatted = format(e.target.value);
         onChange(formatted);
+        if (onBlur) onBlur(formatted);
       }}
     />
   );
@@ -293,6 +296,47 @@ function StatusPill({
   );
 }
 
+// ─── Carry-over Input Component ────────────────────────────────
+function CarryOverInput({
+  carryOverMinutes,
+  updateWeek,
+}: {
+  carryOverMinutes: number;
+  updateWeek: (updater: (prev: WeekRecord) => WeekRecord) => void;
+}) {
+  const [localVal, setLocalVal] = useState(minutesToTime(carryOverMinutes));
+
+  // Sync when prop changes externally (e.g. week navigation)
+  useEffect(() => {
+    setLocalVal(minutesToTime(carryOverMinutes));
+  }, [carryOverMinutes]);
+
+  const commitChanges = (val: string) => {
+    let totalMins = 0;
+    if (val.includes(":")) {
+      const [h, m] = val.split(":").map(Number);
+      if (!isNaN(h) && !isNaN(m)) {
+        totalMins = h * 60 + m;
+      }
+    } else if (val.trim() === "") {
+      totalMins = 0;
+    }
+    updateWeek((w) => ({ ...w, carryOverMinutes: totalMins }));
+    setLocalVal(minutesToTime(totalMins));
+  };
+
+  return (
+    <TimeInput
+      value={localVal}
+      onChange={setLocalVal}
+      onBlur={(v) => {
+        // TimeInput already calls onBlur with a formatted string via its internal format()
+        commitChanges(v);
+      }}
+    />
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────
 export default function HomePage() {
   const { data: session, status } = useSession();
@@ -333,11 +377,21 @@ export default function HomePage() {
           // Convert API records → Record<string, WeekRecord>
           const weeks: Record<string, WeekRecord> = {};
           for (const rec of records) {
+            const rawAttendances = Array.isArray(rec.attendances) ? rec.attendances : [];
+            const fullAttendances = ALL_DAYS.map((day: DayName) =>
+              rawAttendances.find((a: any) => a.day === day) || { day, morningIn: "", morningOut: "", afternoonIn: "", afternoonOut: "" }
+            );
+
+            const rawSchedules = Array.isArray(rec.schedules) ? rec.schedules : [];
+            const fullSchedules = DAYS.map((day: DayName) =>
+              rawSchedules.find((s: any) => s.day === day) || { day, lectureStart: "", lectureEnd: "" }
+            );
+
             weeks[rec.weekKey] = {
               weekKey: rec.weekKey,
               carryOverMinutes: rec.carryOverMinutes,
-              schedules: Array.isArray(rec.schedules) ? rec.schedules : [],
-              attendances: Array.isArray(rec.attendances) ? rec.attendances : [],
+              schedules: fullSchedules,
+              attendances: fullAttendances,
             };
           }
           // Create current week if not present (with carry-over)
@@ -479,24 +533,42 @@ export default function HomePage() {
 
   const updateSchedule = useCallback(
     (day: DayName, field: keyof Omit<DaySchedule, "day">, val: string) => {
-      updateWeek((w) => ({
-        ...w,
-        schedules: w.schedules.map((s) =>
-          s.day === day ? { ...s, [field]: val } : s
-        ),
-      }));
+      updateWeek((w) => {
+        const hasDay = w.schedules.some((s) => s.day === day);
+        if (!hasDay) {
+          return {
+            ...w,
+            schedules: [...w.schedules, { day, lectureStart: "", lectureEnd: "", [field]: val }],
+          };
+        }
+        return {
+          ...w,
+          schedules: w.schedules.map((s) =>
+            s.day === day ? { ...s, [field]: val } : s
+          ),
+        };
+      });
     },
     [updateWeek]
   );
 
   const updateAttendance = useCallback(
     (day: DayName, field: keyof Omit<DayAttendance, "day">, val: string) => {
-      updateWeek((w) => ({
-        ...w,
-        attendances: w.attendances.map((a) =>
-          a.day === day ? { ...a, [field]: val } : a
-        ),
-      }));
+      updateWeek((w) => {
+        const hasDay = w.attendances.some((a) => a.day === day);
+        if (!hasDay) {
+          return {
+            ...w,
+            attendances: [...w.attendances, { day, morningIn: "", morningOut: "", afternoonIn: "", afternoonOut: "", [field]: val }],
+          };
+        }
+        return {
+          ...w,
+          attendances: w.attendances.map((a) =>
+            a.day === day ? { ...a, [field]: val } : a
+          ),
+        };
+      });
     },
     [updateWeek]
   );
@@ -889,6 +961,27 @@ export default function HomePage() {
                   </tr>
                   <tr>
                     <td
+                      colSpan={4}
+                      style={{
+                        textAlign: "right",
+                        color: "var(--text-subtle)",
+                        fontSize: "0.75rem",
+                        paddingRight: 16,
+                      }}
+                    >
+                      Carry Over (Shortage)
+                    </td>
+                    <td colSpan={2} style={{ textAlign: "center" }}>
+                      <div style={{ maxWidth: 100, margin: "0 auto" }}>
+                        <CarryOverInput
+                          carryOverMinutes={currentWeek.carryOverMinutes}
+                          updateWeek={updateWeek}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
                       colSpan={5}
                       style={{
                         textAlign: "center",
@@ -896,13 +989,7 @@ export default function HomePage() {
                         fontSize: "0.75rem",
                       }}
                     >
-                      Target
-                      {currentWeek.carryOverMinutes > 0 && (
-                        <span style={{ marginLeft: 6, color: "var(--warning)" }}>
-                          (40:00 + {minutesToTime(currentWeek.carryOverMinutes)}{" "}
-                          carry-over)
-                        </span>
-                      )}
+                      Weekly Target
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <span
@@ -937,7 +1024,7 @@ export default function HomePage() {
                   marginBottom: 6,
                 }}
               >
-                <span>Progress this week</span>
+                <span>Weekly Progress</span>
                 <span>{Math.round(progressPct)}%</span>
               </div>
               <div className="progress-track">

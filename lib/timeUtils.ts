@@ -6,7 +6,7 @@ import { DaySchedule } from "@/types";
 export function timeToMinutes(time: string): number | null {
     if (!time || !time.includes(":")) return null;
     const [h, m] = time.split(":").map(Number);
-    if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+    if (isNaN(h) || isNaN(m) || h < 0 || h > 99 || m < 0 || m > 59) return null;
     return h * 60 + m;
 }
 
