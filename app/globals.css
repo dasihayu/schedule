@@ -1,26 +1,281 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── Dark mode variant: triggered by data-theme="dark" on any ancestor ── */
+@variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ── Theme variables ─────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #f1f4f9;
+  --surface-3: #e8ecf2;
+  --border: #dde1ea;
+  --border-soft: #edf0f5;
+  --text: #0f172a;
+  --text-muted: #4b5675;
+  --text-subtle: #94a3b8;
+  --primary: #6366f1;
+  --primary-soft: rgba(99, 102, 241, 0.08);
+  --primary-ring: rgba(99, 102, 241, 0.25);
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.08);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.08);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.08);
+  --sky: #0284c7;
+  --sky-soft: rgba(2, 132, 199, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, .08), 0 2px 4px rgba(0, 0, 0, .04);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+[data-theme="dark"] {
+  --bg: #080e1c;
+  --surface: #0f172a;
+  --surface-2: #1a2337;
+  --surface-3: #243049;
+  --border: #1e2d45;
+  --border-soft: #162035;
+  --text: #e8edf5;
+  --text-muted: #8a9ab8;
+  --text-subtle: #3d5070;
+  --primary: #818cf8;
+  --primary-soft: rgba(129, 140, 248, 0.1);
+  --primary-ring: rgba(129, 140, 248, 0.25);
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.08);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.08);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.08);
+  --sky: #38bdf8;
+  --sky-soft: rgba(56, 189, 248, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .3), 0 1px 2px rgba(0, 0, 0, .2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, .4), 0 2px 4px rgba(0, 0, 0, .2);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Base ───────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s, color 0.25s;
+}
+
+/* ── App surface card ───────────────────────────────────────── */
+.app-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* ── Table base ─────────────────────────────────────────────── */
+.app-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.app-table thead th {
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.app-table thead th.day-col {
+  text-align: left;
+}
+
+.app-table thead th.group-lecture {
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-2));
+  color: var(--success);
+}
+
+.app-table thead th.group-work {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
+  color: var(--primary);
+}
+
+.app-table tbody tr {
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.12s;
+}
+
+.app-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.app-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.app-table tbody td {
+  padding: 6px 10px;
+  text-align: center;
+  color: var(--text);
+}
+
+.app-table tbody td.day-col {
+  text-align: left;
+  padding-left: 16px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.app-table tfoot tr {
+  border-top: 2px solid var(--border);
+}
+
+.app-table tfoot td {
+  padding: 10px 14px;
+  font-size: 0.8rem;
+}
+
+/* ── 24h text time input ────────────────────────────────────── */
+.time-input-24 {
+  width: 100%;
+  max-width: 80px;
+  margin: 0 auto;
+  display: block;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: ui-monospace, "Cascadia Code", "Fira Mono", monospace;
+  text-align: center;
+  padding: 4px 6px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.time-input-24::placeholder {
+  color: var(--text-subtle);
+}
+
+.time-input-24:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.time-input-24:focus {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.time-input-24:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Auto-value badge ───────────────────────────────────────── */
+.auto-badge {
+  display: inline-block;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+/* ── Progress bar ───────────────────────────────────────────── */
+.progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease, background-color 0.3s;
+}
+
+/* ── Theme toggle button ────────────────────────────────────── */
+.btn-theme {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-theme:hover {
+  border-color: var(--primary-ring);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+/* ── Week nav buttons ───────────────────────────────────────── */
+.btn-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-week-nav:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary-ring);
+  color: var(--primary);
+}
+
+.btn-week-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Section title ──────────────────────────────────────────── */
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
