@@ -75,7 +75,7 @@ function TimeInput({
       m = 0;
     }
     if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 99 && m >= 0 && m <= 59)
-      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")} `;
     return "";
   };
 
@@ -348,6 +348,20 @@ export default function HomePage() {
   const [scheduleTab, setScheduleTab] = useState<"lecture" | "working">("lecture");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Custom Confirmation Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => { },
+  });
+
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Redirect if not authenticated ──────────────────────────
@@ -574,11 +588,38 @@ export default function HomePage() {
   );
 
   const handleReset = useCallback(() => {
-    if (confirm("Reset this week's data?")) {
-      updateWeek((w) => ({
-        ...createWeek(w.weekKey, w.carryOverMinutes),
-      }));
-    }
+    setConfirmState({
+      isOpen: true,
+      title: "Reset Week",
+      message: "Are you sure you want to reset all data for this week? This action cannot be undone.",
+      onConfirm: () => {
+        updateWeek((w) => ({
+          ...createWeek(w.weekKey, w.carryOverMinutes),
+        }));
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  }, [updateWeek]);
+
+  const handleClearAttendance = useCallback(() => {
+    setConfirmState({
+      isOpen: true,
+      title: "Clear Attendance",
+      message: "Are you sure you want to clear all attendance entries for this week?",
+      onConfirm: () => {
+        updateWeek((w) => ({
+          ...w,
+          attendances: ALL_DAYS.map((day: DayName) => ({
+            day,
+            morningIn: "",
+            morningOut: "",
+            afternoonIn: "",
+            afternoonOut: "",
+          })),
+        }));
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   }, [updateWeek]);
 
   if (!loaded) {
@@ -590,20 +631,20 @@ export default function HomePage() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "var(--bg)",
+          background: "var(--bg-gradient)",
         }}
       >
         <div
           style={{
-            width: 28,
-            height: 28,
-            border: "2px solid var(--primary)",
-            borderTopColor: "transparent",
+            width: 40,
+            height: 40,
+            border: "3px solid var(--primary-soft)",
+            borderTopColor: "var(--primary)",
             borderRadius: "50%",
-            animation: "spin 0.7s linear infinite",
+            animation: "spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
           }}
         />
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <style>{`@keyframes spin{to{ transform: rotate(360deg) } } `}</style>
       </div>
     );
   }
@@ -612,31 +653,35 @@ export default function HomePage() {
     <div
       data-theme={theme}
       suppressHydrationWarning
-      style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}
     >
-      <div className="max-w-5xl mx-auto px-4 py-8" style={{ maxWidth: 900 }}>
+      <div className="max-w-5xl mx-auto px-4 py-10" style={{ maxWidth: 960 }}>
 
         {/* ── Live Clock ──────────────────────────────────────── */}
-        <LiveClock />
+        <div style={{ marginBottom: "2rem", display: "flex", justifyContent: "center" }}>
+          <LiveClock />
+        </div>
 
         {/* ── Header ─────────────────────────────────────────── */}
-        <header className="flex items-start justify-between gap-4 mb-6">
-          <div>
+        <header className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6 mb-8 bg-white/50 dark:bg-slate-900/50 p-6 rounded-2xl border border-white/20 dark:border-slate-800/50 shadow-sm backdrop-blur-md">
+          <div className="text-center md:text-left">
             <h1
               style={{
-                fontSize: "1.2rem",
-                fontWeight: 700,
-                letterSpacing: "-0.02em",
-                marginBottom: 2,
+                fontSize: "1.75rem",
+                fontWeight: 800,
+                letterSpacing: "-0.03em",
+                marginBottom: 4,
+                background: "linear-gradient(135deg, var(--primary), var(--sky))",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
               }}
             >
               Work Attendance
             </h1>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-              Track your weekly work hours · auto-saved
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", fontWeight: 500 }}>
+              Track your weekly work hours • Auto-saved
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
             {/* User info */}
             {session?.user?.name && (
               <span style={{
@@ -679,7 +724,7 @@ export default function HomePage() {
               <ThemeIcon theme={theme} />
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            <button
+            {/* <button
               onClick={handleReset}
               style={{
                 fontSize: "0.75rem",
@@ -692,7 +737,7 @@ export default function HomePage() {
               }}
             >
               Reset
-            </button>
+            </button> */}
             {/* Logout */}
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
@@ -714,14 +759,7 @@ export default function HomePage() {
 
         {/* ── Week navigation ─────────────────────────────────── */}
         <div
-          className="flex items-center justify-between mb-5"
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 14,
-            padding: "10px 16px",
-            boxShadow: "var(--shadow-sm)",
-          }}
+          className="flex items-center justify-between mb-8 app-card p-3"
         >
           <button
             className="btn-week-nav"
@@ -738,12 +776,16 @@ export default function HomePage() {
             {isCurrentWeek && (
               <span
                 style={{
+                  display: "inline-block",
+                  marginTop: 4,
                   fontSize: "0.68rem",
-                  background: "var(--primary-soft)",
-                  color: "var(--primary)",
+                  background: "var(--primary)",
+                  color: "#fff",
                   borderRadius: 99,
-                  padding: "1px 8px",
-                  fontWeight: 600,
+                  padding: "2px 10px",
+                  fontWeight: 700,
+                  letterSpacing: "0.02em",
+                  boxShadow: "0 2px 6px var(--primary-soft)",
                 }}
               >
                 Current Week
@@ -766,17 +808,19 @@ export default function HomePage() {
             style={{
               background: "var(--warning-soft)",
               border: "1px solid color-mix(in srgb, var(--warning) 25%, transparent)",
-              borderRadius: 12,
-              padding: "10px 16px",
-              marginBottom: 16,
+              borderRadius: 16,
+              padding: "12px 20px",
+              marginBottom: 24,
               display: "flex",
               alignItems: "center",
-              gap: 10,
-              fontSize: "0.82rem",
+              gap: 12,
+              fontSize: "0.85rem",
               color: "var(--warning)",
+              boxShadow: "var(--shadow-sm)",
+              backdropFilter: "var(--blur)",
             }}
           >
-            <span style={{ fontSize: "1rem" }}>↩</span>
+            <span style={{ fontSize: "1.2rem", filter: "drop-shadow(0 2px 4px var(--warning-soft))" }}>↩</span>
             <div>
               <strong>{minutesToTime(currentWeek.carryOverMinutes)}</strong>{" "}
               carried over from previous week
@@ -796,18 +840,45 @@ export default function HomePage() {
             ATTENDANCE TABLE
         ══════════════════════════════════════════════════════ */}
         <section style={{ marginBottom: 28 }}>
-          <p className="section-title">
-            <span
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <p className="section-title" style={{ margin: 0 }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "var(--primary)",
+                  display: "inline-block",
+                  boxShadow: "0 0 10px var(--primary-soft)",
+                }}
+              />
+              Attendance
+            </p>
+            <button
+              onClick={handleClearAttendance}
               style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "var(--primary)",
-                display: "inline-block",
+                fontSize: "0.75rem",
+                color: "var(--danger)",
+                background: "transparent",
+                border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                cursor: "pointer",
+                fontWeight: 600,
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
-            />
-            Attendance
-          </p>
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "var(--danger-soft)";
+                e.currentTarget.style.borderColor = "var(--danger)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.borderColor = "color-mix(in srgb, var(--danger) 30%, transparent)";
+              }}
+            >
+              Clear
+            </button>
+          </div>
 
           <div className="app-card">
             <div style={{ overflowX: "auto" }}>
@@ -961,12 +1032,11 @@ export default function HomePage() {
                   </tr>
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={5}
                       style={{
-                        textAlign: "right",
+                        textAlign: "center",
                         color: "var(--text-subtle)",
                         fontSize: "0.75rem",
-                        paddingRight: 16,
                       }}
                     >
                       Carry Over (Shortage)
@@ -1031,7 +1101,7 @@ export default function HomePage() {
                 <div
                   className="progress-fill"
                   style={{
-                    width: `${progressPct}%`,
+                    width: `${progressPct}% `,
                     background: progressColor,
                   }}
                 />
@@ -1044,39 +1114,60 @@ export default function HomePage() {
             SCHEDULE TABLE
         ══════════════════════════════════════════════════════ */}
         <section>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
-            <p className="section-title" style={{ marginBottom: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <p className="section-title" style={{ margin: 0 }}>
               <span
                 style={{
-                  width: 6,
-                  height: 6,
+                  width: 8,
+                  height: 8,
                   borderRadius: "50%",
-                  background: "var(--success)",
+                  background: "var(--sky)",
                   display: "inline-block",
+                  boxShadow: "0 0 10px var(--sky)",
                 }}
               />
               Schedule
             </p>
 
-            <div style={{ display: "flex", gap: "4px", background: "var(--surface-2)", padding: "4px", borderRadius: "10px", border: "1px solid var(--border)" }}>
+            {/* TABS */}
+            <div style={{
+              display: "flex",
+              background: "var(--surface-3)",
+              padding: 4,
+              borderRadius: 12,
+              border: "1px solid var(--border)",
+              boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+            }}>
               <button
                 onClick={() => setScheduleTab("lecture")}
                 style={{
-                  padding: "4px 12px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer",
+                  padding: "6px 16px",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
                   background: scheduleTab === "lecture" ? "var(--surface)" : "transparent",
-                  color: scheduleTab === "lecture" ? "var(--primary)" : "var(--text-muted)",
+                  color: scheduleTab === "lecture" ? "var(--text)" : "var(--text-muted)",
                   boxShadow: scheduleTab === "lecture" ? "var(--shadow-sm)" : "none",
                 }}
-              >Lecture</button>
+              >
+                Lecture
+              </button>
               <button
                 onClick={() => setScheduleTab("working")}
                 style={{
-                  padding: "4px 12px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer",
+                  padding: "6px 16px",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
                   background: scheduleTab === "working" ? "var(--surface)" : "transparent",
                   color: scheduleTab === "working" ? "var(--primary)" : "var(--text-muted)",
                   boxShadow: scheduleTab === "working" ? "var(--shadow-sm)" : "none",
                 }}
-              >Working (Auto)</button>
+              >
+                Working (Auto)
+              </button>
             </div>
           </div>
           <p
@@ -1103,10 +1194,10 @@ export default function HomePage() {
                       >
                         Day
                       </th>
-                      <th colSpan={2} className="group-lecture">
+                      <th colSpan={2} className="group-lecture" style={{ background: "color-mix(in srgb, var(--success) 12%, var(--surface-2))", color: "var(--success)" }}>
                         Lecture
                       </th>
-                      <th colSpan={2} className="group-work">
+                      <th colSpan={2} className="group-work" style={{ background: "color-mix(in srgb, var(--primary) 12%, var(--surface-2))", color: "var(--primary)" }}>
                         Work (Auto)
                       </th>
                     </tr>
@@ -1188,7 +1279,7 @@ export default function HomePage() {
                     <tr>
                       <td
                         className="day-col"
-                        style={{ fontWeight: 700, color: "var(--text-muted)", paddingTop: 10, paddingBottom: 10 }}
+                        style={{ fontWeight: 800, color: "var(--text-muted)", paddingTop: 14, paddingBottom: 14, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.05em" }}
                       >
                         Total
                       </td>
@@ -1222,13 +1313,17 @@ export default function HomePage() {
               </div>
               <div
                 style={{
-                  padding: "8px 16px",
-                  borderTop: "1px solid var(--border-soft)",
-                  fontSize: "0.72rem",
+                  padding: "12px 20px",
+                  background: "var(--surface-2)",
+                  fontSize: "0.8rem",
                   color: "var(--text-subtle)",
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                 }}
               >
-                💡 Work start = lecture end + 1 hour buffer · Work end = 00:00
+                <span style={{ fontSize: "1rem" }}>💡</span> Work start = lecture end + 1 hour buffer • Work end = 00:00
               </div>
             </div>
           )}
@@ -1301,7 +1396,7 @@ export default function HomePage() {
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td className="day-col" colSpan={3} style={{ fontWeight: 700, color: "var(--text-muted)", paddingTop: 10, paddingBottom: 10 }}>Total Weekly Auto-Schedule</td>
+                      <td className="day-col" colSpan={3} style={{ fontWeight: 800, color: "var(--text-muted)", paddingTop: 14, paddingBottom: 14, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.05em" }}>Total Weekly Auto-Schedule</td>
                       <td style={{ textAlign: "right", paddingRight: "16px" }}>
                         <span style={{ fontFamily: "ui-monospace, 'Cascadia Code', monospace", fontWeight: 700, fontSize: "0.9rem", color: "var(--primary)" }}>
                           {minutesToTime(monFriWorkMins + satMins + sunMins)}
@@ -1341,6 +1436,106 @@ export default function HomePage() {
           {sortedKeys.length !== 1 ? "s" : ""} stored
         </footer>
       </div>
+
+      {/* ── Custom Confirmation Modal ──────────────────────── */}
+      {confirmState.isOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "rgba(0,0,0,0.4)",
+          backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)",
+          animation: "fadeIn 0.2s ease-out forwards",
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 24,
+            padding: "24px",
+            width: "90%",
+            maxWidth: 400,
+            boxShadow: "var(--shadow-md), 0 0 40px rgba(0,0,0,0.1)",
+            animation: "slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+          }}>
+            <h3 style={{
+              fontSize: "1.2rem",
+              fontWeight: 700,
+              color: "var(--text)",
+              marginBottom: 8,
+              letterSpacing: "-0.02em"
+            }}>
+              {confirmState.title}
+            </h3>
+            <p style={{
+              fontSize: "0.9rem",
+              color: "var(--text-muted)",
+              marginBottom: 24,
+              lineHeight: 1.5,
+            }}>
+              {confirmState.message}
+            </p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 12,
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = "var(--surface-3)"}
+                onMouseOut={(e) => e.currentTarget.style.background = "var(--surface-2)"}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmState.onConfirm}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 12,
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: "var(--danger)",
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px var(--danger-soft)",
+                  transition: "all 0.2s",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 6px 16px var(--danger-soft)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "none";
+                  e.currentTarget.style.boxShadow = "0 4px 12px var(--danger-soft)";
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+          <style>{`
+@keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+}
+@keyframes slideUpFade {
+              from { opacity: 0; transform: translateY(20px) scale(0.96); }
+              to { opacity: 1; transform: translateY(0) scale(1); }
+}
+`}</style>
+        </div>
+      )}
     </div>
   );
 }
