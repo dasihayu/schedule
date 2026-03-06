@@ -25,16 +25,18 @@ export function addMinutes(time: string, mins: number): string {
 
 /**
  * Duration in minutes between start and end "HH:mm".
- * "00:00" as end = midnight = 1440.
- * Returns 0 if invalid or end ≤ start.
+ * Supports cross-midnight: if end ≤ start, assumes end is the next day (+1440 min).
+ * e.g. 20:00 → 02:00 = 6 hours (360 min).
+ * Returns 0 if invalid.
  */
 export function calcDuration(start: string, end: string): number {
     if (!start || !end) return 0;
     const s = timeToMinutes(start);
     const eRaw = timeToMinutes(end);
     if (s === null || eRaw === null) return 0;
-    const e = eRaw === 0 ? 1440 : eRaw;
-    return e > s ? e - s : 0;
+    // If end <= start, treat end as next-day (add 1440 minutes)
+    const e = eRaw <= s ? eRaw + 1440 : eRaw;
+    return e - s;
 }
 
 /** Auto work start = lecture end + 1h jeda */
@@ -117,7 +119,9 @@ export function getDailyAutoWork(sch: DaySchedule | undefined): DailyAutoWork {
     };
 }
 
-/** Validate a login/logout pair. Returns error string or null. */
+/** Validate a login/logout pair. Returns error string or null.
+ * Supports cross-midnight (e.g. login 20:00, logout 02:00 = 6 hours next day).
+ */
 export function validateSession(
     login: string,
     logout: string,
@@ -130,8 +134,8 @@ export function validateSession(
     const eRaw = timeToMinutes(logout);
     if (s === null) return `${label}: invalid login`;
     if (eRaw === null) return `${label}: invalid logout`;
-    const e = eRaw === 0 ? 1440 : eRaw;
-    if (e <= s) return `${label}: logout must be after login`;
+    // Allow cross-midnight: logout == login is the only truly invalid case
+    if (eRaw === s) return `${label}: logout must be different from login`;
     return null;
 }
 

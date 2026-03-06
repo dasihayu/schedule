@@ -408,11 +408,12 @@ export default function HomePage() {
               attendances: fullAttendances,
             };
           }
-          // Create current week if not present (with carry-over)
+          // Create current week if not present (with carry-over + copy schedules from latest week)
           if (!weeks[todayKey]) {
             const sortedKeys = Object.keys(weeks).sort();
             const latestKey = sortedKeys[sortedKeys.length - 1];
             let carryOver = 0;
+            let copiedSchedules: DaySchedule[] | undefined;
             if (latestKey) {
               const lw = weeks[latestKey];
               const lwTarget = BASE_TARGET + lw.carryOverMinutes;
@@ -424,8 +425,12 @@ export default function HomePage() {
                 );
               }, 0);
               carryOver = Math.max(0, lwTarget - lwTotal);
+              // Copy schedules from previous week (lecture times stay the same week-to-week)
+              copiedSchedules = lw.schedules.map((s) => ({ ...s }));
             }
-            weeks[todayKey] = createWeek(todayKey, carryOver);
+            const newWeek = createWeek(todayKey, carryOver);
+            if (copiedSchedules) newWeek.schedules = copiedSchedules;
+            weeks[todayKey] = newWeek;
           }
           setAllWeeks(weeks);
         } else {
