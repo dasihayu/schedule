@@ -743,6 +743,25 @@ export default function HomePage() {
             >
               Reset
             </button> */}
+            {/* Tasks page link */}
+            <a
+              href="/tasks"
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--primary)",
+                background: "var(--primary-soft)",
+                border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontWeight: 600,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              ✦ Tasks
+            </a>
             {/* Logout */}
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
