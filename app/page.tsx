@@ -388,6 +388,7 @@ export default function HomePage() {
   const [scheduleTab, setScheduleTab] = useState<"lecture" | "working">("lecture");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // Custom Confirmation Modal State
   const [confirmState, setConfirmState] = useState<{
@@ -804,6 +805,22 @@ export default function HomePage() {
             >
               ✦ Tasks
             </a>
+            {/* Generate Report button */}
+            <button
+              onClick={() => setShowReportModal(true)}
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--success)",
+                background: "var(--success-soft)",
+                border: "1px solid color-mix(in srgb, var(--success) 25%, transparent)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              📄 Generate Report
+            </button>
             {/* Logout */}
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
@@ -1601,6 +1618,118 @@ export default function HomePage() {
 `}</style>
         </div>
       )}
+
+      {/* ── Report Modal ────────────────────────────────────────── */}
+      {showReportModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "20px",
+          }}
+          onClick={() => setShowReportModal(false)}
+        >
+          <div
+            style={{
+              background: "white", // Always white to look like Excel/spreadsheet
+              color: "black",
+              borderRadius: "12px",
+              padding: "24px",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+              maxWidth: "800px",
+              width: "100%",
+              overflowX: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Attendance Report</h2>
+              <button
+                onClick={() => setShowReportModal(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "1.5rem",
+                  lineHeight: 1,
+                  color: "#666",
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontFamily: "Arial, sans-serif",
+                fontSize: "14px",
+                textAlign: "center",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Hari</th>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Login Pagi</th>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Logout Pagi</th>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Login Sore</th>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Logout Sore</th>
+                  <th style={{ border: "1px solid #000", padding: "8px", fontWeight: "normal" }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ALL_DAYS.map((day) => {
+                  const idDayTrans: Record<string, string> = {
+                    Monday: "Senin",
+                    Tuesday: "Selasa",
+                    Wednesday: "Rabu",
+                    Thursday: "Kamis",
+                    Friday: "Jumat",
+                    Saturday: "Sabtu",
+                    Sunday: "Minggu",
+                  };
+                  const att = currentWeek.attendances.find((a) => a.day === day);
+                  const totalMins = att
+                    ? calcDuration(att.morningIn, att.morningOut) + calcDuration(att.afternoonIn, att.afternoonOut)
+                    : 0;
+
+                  return (
+                    <tr key={day}>
+                      <td style={{ border: "1px solid #000", padding: "4px" }}>{idDayTrans[day]}</td>
+                      <td style={{ border: "1px solid #000", padding: "4px" }}>{att?.morningIn.trim() || ""}</td>
+                      <td style={{ border: "1px solid #000", padding: "4px" }}>{att?.morningOut.trim() || ""}</td>
+                      <td style={{ border: "1px solid #000", padding: "4px" }}>{att?.afternoonIn.trim() || ""}</td>
+                      <td style={{ border: "1px solid #000", padding: "4px" }}>{att?.afternoonOut.trim() || ""}</td>
+                      <td style={{ border: "1px solid #000", padding: "4px", fontWeight: "bold" }}>
+                        {totalMins > 0 ? minutesToTime(totalMins) : "0:00"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td colSpan={5} style={{ border: "1px solid #000", padding: "4px", textAlign: "center", fontWeight: "normal" }}>
+                    TOTAL
+                  </td>
+                  <td style={{ border: "1px solid #000", padding: "4px", fontWeight: "bold" }}>
+                    {minutesToTime(weeklyTotal)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
