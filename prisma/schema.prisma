@@ -50,6 +50,7 @@ model WeekRecord {
   id               String   @id @default(cuid())
   weekKey          String // e.g. "2026-W09"
   carryOverMinutes Int      @default(0)
+  targetMinutes    Int      @default(2400)
   schedules        Json     @default("[]")
   attendances      Json     @default("[]")
   userId           String

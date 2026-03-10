@@ -62,6 +62,7 @@ export interface WeekRecord {
     schedules: DaySchedule[];
     attendances: DayAttendance[];
     carryOverMinutes: number;
+    targetMinutes: number;
 }
 
 // ─── Legacy: DayRecord (used by WeeklyTable) ───────────────────────────────

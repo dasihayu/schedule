@@ -40,12 +40,13 @@ function emptyAttendances(): DayAttendance[] {
     afternoonOut: "",
   }));
 }
-function createWeek(key: string, carryOver = 0): WeekRecord {
+function createWeek(key: string, carryOver = 0, targetMinutes = BASE_TARGET): WeekRecord {
   return {
     weekKey: key,
     schedules: emptySchedules(),
     attendances: emptyAttendances(),
     carryOverMinutes: carryOver,
+    targetMinutes,
   };
 }
 
@@ -337,6 +338,45 @@ function CarryOverInput({
   );
 }
 
+// ─── Target Input Component ───────────────────────────────────
+function TargetInput({
+  targetMinutes,
+  updateWeek,
+}: {
+  targetMinutes: number;
+  updateWeek: (updater: (prev: WeekRecord) => WeekRecord) => void;
+}) {
+  const [localVal, setLocalVal] = useState(minutesToTime(targetMinutes));
+
+  useEffect(() => {
+    setLocalVal(minutesToTime(targetMinutes));
+  }, [targetMinutes]);
+
+  const commitChanges = (val: string) => {
+    let totalMins = 0;
+    if (val.includes(":")) {
+      const [h, m] = val.split(":").map(Number);
+      if (!isNaN(h) && !isNaN(m)) {
+        totalMins = h * 60 + m;
+      }
+    } else if (val.trim() === "") {
+      totalMins = 0;
+    }
+    updateWeek((w) => ({ ...w, targetMinutes: totalMins }));
+    setLocalVal(minutesToTime(totalMins));
+  };
+
+  return (
+    <TimeInput
+      value={localVal}
+      onChange={setLocalVal}
+      onBlur={(v) => {
+        commitChanges(v);
+      }}
+    />
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────
 export default function HomePage() {
   const { data: session, status } = useSession();
@@ -406,6 +446,7 @@ export default function HomePage() {
               carryOverMinutes: rec.carryOverMinutes,
               schedules: fullSchedules,
               attendances: fullAttendances,
+              targetMinutes: rec.targetMinutes ?? BASE_TARGET,
             };
           }
           // Create current week if not present (with carry-over + copy schedules from latest week)
@@ -458,6 +499,7 @@ export default function HomePage() {
           body: JSON.stringify({
             weekKey: week.weekKey,
             carryOverMinutes: week.carryOverMinutes,
+            targetMinutes: week.targetMinutes,
             schedules: week.schedules,
             attendances: week.attendances,
           }),
@@ -483,7 +525,7 @@ export default function HomePage() {
   const todayKey = getISOWeekKey();
   const currentWeek: WeekRecord =
     allWeeks[viewKey] ?? createWeek(viewKey, 0);
-  const targetMinutes = BASE_TARGET + currentWeek.carryOverMinutes;
+  const targetMinutes = currentWeek.targetMinutes + currentWeek.carryOverMinutes;
   const isCurrentWeek = viewKey === todayKey;
 
   const sortedKeys = Object.keys(allWeeks).sort();
@@ -1086,16 +1128,15 @@ export default function HomePage() {
                       Weekly Target
                     </td>
                     <td style={{ textAlign: "center" }}>
-                      <span
-                        style={{
-                          fontFamily: "ui-monospace, monospace",
-                          fontWeight: 700,
-                          color: "var(--text-muted)",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        {minutesToTime(targetMinutes)}
-                      </span>
+                      <div style={{ maxWidth: 100, margin: "0 auto", display: "flex", gap: "4px", alignItems: "center", justifyContent: "center" }}>
+                        <TargetInput
+                          targetMinutes={currentWeek.targetMinutes}
+                          updateWeek={updateWeek}
+                        />
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {currentWeek.carryOverMinutes > 0 ? `+ ${minutesToTime(currentWeek.carryOverMinutes)} CO` : currentWeek.carryOverMinutes < 0 ? `- ${minutesToTime(-currentWeek.carryOverMinutes)} CO` : ''}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 </tfoot>

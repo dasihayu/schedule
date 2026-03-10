@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const { weekKey, carryOverMinutes = 0, schedules = [], attendances = [] } =
+        const { weekKey, carryOverMinutes = 0, targetMinutes = 2400, schedules = [], attendances = [] } =
             await req.json();
 
         if (!weekKey) {
@@ -39,12 +39,14 @@ export async function POST(req: NextRequest) {
             create: {
                 weekKey,
                 carryOverMinutes,
+                targetMinutes,
                 schedules,
                 attendances,
                 userId: session.user.id,
             },
             update: {
                 carryOverMinutes,
+                targetMinutes,
                 schedules,
                 attendances,
             },
