@@ -8,10 +8,45 @@ export async function GET(req: Request) {
     if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
-    const projectId = searchParams.get("projectId");
-    if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+    const mode = searchParams.get("mode");
 
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+
+    if (mode === "copy-work") {
+        const tasks = await prisma.task.findMany({
+            where: {
+                userId: session.user.id,
+                project: { label: { equals: "work", mode: "insensitive" } },
+                OR: [
+                    { status: "PENDING" },
+                    { status: "DONE", createdAt: { gte: cutoff } },
+                ],
+            },
+            orderBy: { createdAt: "asc" },
+            select: {
+                id: true,
+                title: true,
+                status: true,
+                createdAt: true,
+                projectId: true,
+                project: { select: { name: true } },
+            },
+        });
+
+        return NextResponse.json({
+            tasks: tasks.map((task) => ({
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                createdAt: task.createdAt,
+                projectId: task.projectId,
+                projectName: task.project.name,
+            })),
+        });
+    }
+
+    const projectId = searchParams.get("projectId");
+    if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
     const tasks = await prisma.task.findMany({
         where: {

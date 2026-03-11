@@ -5,9 +5,11 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 type TaskStatus = "PENDING" | "DONE";
+type ProjectLabel = "work" | "other";
 
-interface Project { id: string; name: string; createdAt: string; }
+interface Project { id: string; name: string; label: string; createdAt: string; }
 interface Task { id: string; title: string; status: TaskStatus; projectId: string; createdAt: string; }
+interface CopyTask { title: string; status: TaskStatus; projectId: string; projectName: string; }
 
 // ── Spinner ───────────────────────────────────────────────────
 function Spinner() {
@@ -123,6 +125,7 @@ export default function TasksPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectLabel, setNewProjectLabel] = useState<ProjectLabel>("work");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -179,13 +182,22 @@ export default function TasksPage() {
     if (!newProjectName.trim()) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newProjectName.trim() }) });
+      const res = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newProjectName.trim(), label: newProjectLabel }) });
       const data = await res.json();
       if (!res.ok || !data.project) { setToast(`Error: ${data.error ?? "Failed"}`); return; }
       const { project } = data;
-      setProjects((prev) => { const exists = prev.find((p) => p.id === project.id); return exists ? prev : [...prev, project]; });
+      setProjects((prev) => {
+        const existingIndex = prev.findIndex((p) => p.id === project.id);
+        if (existingIndex >= 0) {
+          const next = [...prev];
+          next[existingIndex] = project;
+          return next;
+        }
+        return [...prev, project];
+      });
       setSelectedProjectId(project.id);
       setNewProjectName("");
+      setNewProjectLabel("work");
       setShowNewProject(false);
       setToast(`Project "${project.name}" ready`);
     } catch { setToast("Network error. Please try again."); }
@@ -238,22 +250,54 @@ export default function TasksPage() {
   };
 
   const handleCopy = useCallback(async () => {
-    const done = tasks.filter((t) => t.status === "DONE");
-    const pending = tasks.filter((t) => t.status === "PENDING");
-    const fmt = (list: Task[], label: string) => list.length === 0 ? `--- ${label} ---\n(none)` : `--- ${label} ---\n` + list.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-    const dateStr = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-    const text = `${dateStr}\n\n${fmt(done, "Done")}\n\n${fmt(pending, "Pending")}`;
     try {
+      const res = await fetch("/api/tasks?mode=copy-work");
+      const data = await res.json();
+
+      if (!res.ok) {
+        setToast(`Error: ${data.error ?? "Failed"}`);
+        return;
+      }
+
+      const allWorkTasks = (data.tasks ?? []) as CopyTask[];
+      if (allWorkTasks.length === 0) {
+        setToast("Tidak ada task di project label work.");
+        return;
+      }
+
+      const grouped = new Map<string, { done: CopyTask[]; pending: CopyTask[] }>();
+      for (const task of allWorkTasks) {
+        const bucket = grouped.get(task.projectName) ?? { done: [], pending: [] };
+        if (task.status === "DONE") bucket.done.push(task);
+        else bucket.pending.push(task);
+        grouped.set(task.projectName, bucket);
+      }
+
+      const fmt = (list: CopyTask[], label: string) => {
+        if (list.length === 0) return `--- ${label} ---\n(none)`;
+        return `--- ${label} ---\n${list.map((t, i) => `${i + 1}. ${t.title}`).join("\n")}`;
+      };
+
+      const blocks = Array.from(grouped.entries()).map(([projectName, bucket]) => (
+        `# ${projectName}\n${fmt(bucket.done, "Done")}\n\n${fmt(bucket.pending, "Pending")}`
+      ));
+
+      const dateStr = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      const text = `${dateStr}\n\n${blocks.join("\n\n")}`;
+
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setToast("Copied to clipboard!");
       setTimeout(() => setCopied(false), 2000);
-    } catch { setToast("Failed to copy. Please allow clipboard access."); }
-  }, [tasks]);
+    } catch {
+      setToast("Failed to copy. Please allow clipboard access.");
+    }
+  }, []);
 
   const doneTasks = tasks.filter((t) => t.status === "DONE");
   const pendingTasks = tasks.filter((t) => t.status === "PENDING");
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const hasWorkProjects = projects.some((p) => p.label?.toLowerCase() === "work");
 
   if (status === "loading") {
     return (
@@ -337,9 +381,14 @@ export default function TasksPage() {
                 <button
                   className={`proj-tab${selectedProjectId === p.id ? " active" : ""}`}
                   onClick={() => setSelectedProjectId(p.id)}
-                  style={{ paddingRight: selectedProjectId === p.id ? 28 : undefined }}
+                  style={{ paddingRight: selectedProjectId === p.id ? 28 : undefined, display: "inline-flex", alignItems: "center", gap: 6 }}
                 >
-                  {p.name}
+                  <span>{p.name}</span>
+                  {p.label?.toLowerCase() === "work" && (
+                    <span style={{ fontSize: "0.62rem", lineHeight: 1, padding: "2px 6px", borderRadius: "999px", background: "var(--primary-soft)", border: "1px solid var(--primary)", color: "var(--primary)", fontWeight: 700 }}>
+                      work
+                    </span>
+                  )}
                 </button>
                 {selectedProjectId === p.id && (
                   <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(p); }} title="Hapus project"
@@ -364,10 +413,18 @@ export default function TasksPage() {
                   placeholder="Project name…"
                   style={{ padding: "5px 12px", borderRadius: "var(--radius-pill)", border: "1px solid var(--primary)", background: "var(--primary-soft)", color: "var(--text)", outline: "none", fontSize: "0.8rem", fontWeight: 600, width: 150, fontFamily: "var(--font-display)" }}
                 />
+                <select
+                  value={newProjectLabel}
+                  onChange={(e) => setNewProjectLabel(e.target.value as ProjectLabel)}
+                  style={{ padding: "5px 10px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", outline: "none", fontSize: "0.75rem", fontWeight: 700, fontFamily: "var(--font-display)", textTransform: "lowercase" }}
+                >
+                  <option value="work">work</option>
+                  <option value="other">other</option>
+                </select>
                 <button onClick={handleCreateProject} style={{ padding: "5px 12px", borderRadius: "var(--radius-pill)", border: "none", background: "var(--primary)", color: "#fff", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>
                   {loading ? <Spinner /> : "Add"}
                 </button>
-                <button onClick={() => { setShowNewProject(false); setNewProjectName(""); }} style={{ padding: "5px 10px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border)", background: "transparent", color: "var(--text-subtle)", fontSize: "0.8rem", cursor: "pointer" }}>
+                <button onClick={() => { setShowNewProject(false); setNewProjectName(""); setNewProjectLabel("work"); }} style={{ padding: "5px 10px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border)", background: "transparent", color: "var(--text-subtle)", fontSize: "0.8rem", cursor: "pointer" }}>
                   ✕
                 </button>
               </div>
@@ -383,12 +440,17 @@ export default function TasksPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--primary)", display: "inline-block" }} />
                 <span style={{ fontWeight: 700, fontSize: "0.88rem", fontFamily: "var(--font-display)" }}>{selectedProject?.name}</span>
+                {selectedProject?.label && (
+                  <span style={{ fontSize: "0.62rem", lineHeight: 1, padding: "2px 6px", borderRadius: "999px", background: selectedProject.label.toLowerCase() === "work" ? "var(--primary-soft)" : "var(--surface-3)", border: `1px solid ${selectedProject.label.toLowerCase() === "work" ? "var(--primary)" : "var(--border)"}`, color: selectedProject.label.toLowerCase() === "work" ? "var(--primary)" : "var(--text-subtle)", fontWeight: 700 }}>
+                    {selectedProject.label.toLowerCase()}
+                  </span>
+                )}
                 <span style={{ fontSize: "0.68rem", padding: "2px 8px", borderRadius: "var(--radius-pill)", background: "var(--surface-3)", color: "var(--text-subtle)", fontWeight: 700, border: "1px solid var(--border)", fontFamily: "var(--font-display)" }}>
                   {tasks.length}
                 </span>
               </div>
 
-              {tasks.length > 0 && (
+              {hasWorkProjects && (
                 <button onClick={handleCopy} style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "5px 11px", borderRadius: "var(--radius)",
