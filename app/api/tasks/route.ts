@@ -108,23 +108,55 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH – toggle status
+// PATCH – update task status/title
 export async function PATCH(req: Request) {
   const session = await auth();
   if (!session?.user?.id)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { id, status } = await req.json();
-    if (!id || !status)
+    const { id, status, title } = await req.json();
+    if (!id)
+      return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const data: { status?: "PENDING" | "DONE"; title?: string } = {};
+
+    if (typeof status === "string") {
+      if (status !== "PENDING" && status !== "DONE")
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      data.status = status;
+    }
+
+    if (typeof title === "string") {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle)
+        return NextResponse.json({ error: "Title required" }, { status: 400 });
+      data.title = trimmedTitle;
+    }
+
+    if (Object.keys(data).length === 0)
       return NextResponse.json(
-        { error: "id and status required" },
+        { error: "status or title required" },
         { status: 400 },
       );
 
-    const task = await prisma.task.updateMany({
+    const updated = await prisma.task.updateMany({
       where: { id, userId: session.user.id },
-      data: { status },
+      data,
+    });
+
+    if (updated.count === 0)
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+
+    const task = await prisma.task.findFirst({
+      where: { id, userId: session.user.id },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        projectId: true,
+      },
     });
 
     return NextResponse.json({ task });

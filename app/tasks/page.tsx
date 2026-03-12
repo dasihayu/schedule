@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type TaskStatus = "PENDING" | "DONE";
 type ProjectLabel = "work" | "other";
@@ -280,6 +281,7 @@ export default function TasksPage() {
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const taskInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -425,6 +427,50 @@ export default function TasksPage() {
     });
   };
 
+  const handleEditTask = async (task: Task, nextTitleRaw: string) => {
+    const nextTitle = nextTitleRaw.trim();
+    if (!nextTitle) {
+      setToast("Judul task tidak boleh kosong.");
+      return false;
+    }
+    if (nextTitle === task.title) return true;
+
+    const prevTitle = task.title;
+    setSavingTaskId(task.id);
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, title: nextTitle } : t)),
+    );
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, title: nextTitle }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.task) {
+        throw new Error(data.error ?? "Failed");
+      }
+
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id ? { ...t, title: data.task.title } : t,
+        ),
+      );
+      return true;
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, title: prevTitle } : t)),
+      );
+      setToast(
+        `Error: ${err instanceof Error ? err.message : "Failed to update task"}`,
+      );
+      return false;
+    } finally {
+      setSavingTaskId((current) => (current === task.id ? null : current));
+    }
+  };
+
   const handleDeleteProject = async () => {
     if (!confirmDelete) return;
     setDeleting(true);
@@ -543,7 +589,7 @@ export default function TasksPage() {
         @keyframes fadeInUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         .task-row { transition: background 0.1s; }
         .task-row:hover { background: var(--surface-2); }
-        .task-row:hover .task-del { opacity: 1 !important; }
+        .task-row:hover .task-action { opacity: 1 !important; }
         .proj-tab {
           padding: 5px 13px; border-radius: var(--radius); border: 1px solid var(--border);
           background: var(--surface-2); color: var(--text-muted); font-size: 0.78rem;
@@ -570,7 +616,7 @@ export default function TasksPage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <a
+            <Link
               href="/"
               style={{
                 display: "flex",
@@ -601,7 +647,7 @@ export default function TasksPage() {
               }}
             >
               ← Attendance
-            </a>
+            </Link>
             <div>
               <h1
                 style={{
@@ -1112,7 +1158,9 @@ export default function TasksPage() {
                         task={task}
                         index={i}
                         onToggle={handleToggle}
+                        onEdit={handleEditTask}
                         onDelete={handleDelete}
+                        saving={savingTaskId === task.id}
                       />
                     ))}
                   </div>
@@ -1155,7 +1203,9 @@ export default function TasksPage() {
                         task={task}
                         index={i}
                         onToggle={handleToggle}
+                        onEdit={handleEditTask}
                         onDelete={handleDelete}
+                        saving={savingTaskId === task.id}
                       />
                     ))}
                   </div>
@@ -1229,14 +1279,41 @@ function TaskRow({
   task,
   index,
   onToggle,
+  onEdit,
   onDelete,
+  saving,
 }: {
   task: Task;
   index: number;
   onToggle: (t: Task) => void;
+  onEdit: (task: Task, nextTitle: string) => Promise<boolean>;
   onDelete: (id: string) => void;
+  saving: boolean;
 }) {
   const isDone = task.status === "DONE";
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(task.title);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing) editInputRef.current?.focus();
+  }, [isEditing]);
+
+  const startEdit = () => {
+    setDraftTitle(task.title);
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setDraftTitle(task.title);
+    setIsEditing(false);
+  };
+
+  const saveEdit = async () => {
+    const ok = await onEdit(task, draftTitle);
+    if (ok) setIsEditing(false);
+  };
+
   return (
     <div
       className="task-row"
@@ -1252,7 +1329,9 @@ function TaskRow({
     >
       {/* Checkbox */}
       <div
-        onClick={() => onToggle(task)}
+        onClick={() => {
+          if (!isEditing && !saving) onToggle(task);
+        }}
         title={isDone ? "Mark as pending" : "Mark as done"}
         style={{
           width: 17,
@@ -1260,7 +1339,7 @@ function TaskRow({
           borderRadius: 4,
           border: isDone ? "none" : "1.5px solid var(--border)",
           background: isDone ? "var(--success)" : "var(--surface-2)",
-          cursor: "pointer",
+          cursor: isEditing || saving ? "default" : "pointer",
           flexShrink: 0,
           transition: "background 0.15s, border-color 0.15s",
           display: "flex",
@@ -1282,76 +1361,211 @@ function TaskRow({
         )}
       </div>
 
-      {/* Title */}
-      <span
-        style={{
-          flex: 1,
-          fontSize: "0.875rem",
-          fontWeight: 400,
-          lineHeight: 1.4,
-          color: "var(--text)",
-          textDecoration: isDone ? "line-through" : "none",
-          textDecorationColor: "var(--text-subtle)",
-          fontFamily: "var(--font-body)",
-        }}
-      >
-        <span
+      {isEditing ? (
+        <div
           style={{
-            fontSize: "0.68rem",
-            fontWeight: 700,
-            color: "var(--text-subtle)",
-            marginRight: 6,
-            fontFamily: "var(--font-mono)",
-            fontVariantNumeric: "tabular-nums",
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
           }}
         >
-          {index + 1}.
-        </span>
-        {task.title}
-      </span>
-
-      {/* Delete */}
-      <button
-        className="task-del"
-        onClick={() => onDelete(task.id)}
-        title="Delete task"
-        style={{
-          opacity: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 26,
-          height: 26,
-          borderRadius: "var(--radius)",
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-          color: "var(--text-subtle)",
-          transition: "background 0.12s, color 0.12s",
-        }}
-        onMouseOver={(e) => {
-          e.currentTarget.style.background = "var(--surface-3)";
-          e.currentTarget.style.color = "var(--danger)";
-        }}
-        onMouseOut={(e) => {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--text-subtle)";
-        }}
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
+          <span
+            style={{
+              fontSize: "0.68rem",
+              fontWeight: 700,
+              color: "var(--text-subtle)",
+              marginRight: 2,
+              fontFamily: "var(--font-mono)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {index + 1}.
+          </span>
+          <input
+            ref={editInputRef}
+            value={draftTitle}
+            disabled={saving}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void saveEdit();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEdit();
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: "6px 10px",
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--primary)",
+              background: "var(--surface-2)",
+              color: "var(--text)",
+              outline: "none",
+              fontSize: "0.84rem",
+              fontFamily: "var(--font-body)",
+            }}
+          />
+          <button
+            onClick={() => void saveEdit()}
+            disabled={!draftTitle.trim() || saving}
+            style={{
+              padding: "6px 10px",
+              borderRadius: "var(--radius)",
+              border: "none",
+              background: "var(--primary)",
+              color: "#fff",
+              cursor: !draftTitle.trim() || saving ? "default" : "pointer",
+              fontSize: "0.74rem",
+              fontWeight: 700,
+              fontFamily: "var(--font-display)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              minWidth: 56,
+              justifyContent: "center",
+              opacity: !draftTitle.trim() || saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? <Spinner /> : "Save"}
+          </button>
+          <button
+            onClick={cancelEdit}
+            disabled={saving}
+            style={{
+              padding: "6px 9px",
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text-subtle)",
+              cursor: saving ? "default" : "pointer",
+              fontSize: "0.74rem",
+              fontWeight: 600,
+              fontFamily: "var(--font-display)",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <span
+          title="Double click to edit"
+          onDoubleClick={startEdit}
+          style={{
+            flex: 1,
+            fontSize: "0.875rem",
+            fontWeight: 400,
+            lineHeight: 1.4,
+            color: "var(--text)",
+            textDecoration: isDone ? "line-through" : "none",
+            textDecorationColor: "var(--text-subtle)",
+            fontFamily: "var(--font-body)",
+          }}
         >
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-          <path d="M10 11v6M14 11v6" />
-          <path d="M9 6V4h6v2" />
-        </svg>
-      </button>
+          <span
+            style={{
+              fontSize: "0.68rem",
+              fontWeight: 700,
+              color: "var(--text-subtle)",
+              marginRight: 6,
+              fontFamily: "var(--font-mono)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {index + 1}.
+          </span>
+          {task.title}
+        </span>
+      )}
+
+      {!isEditing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            className="task-action"
+            onClick={startEdit}
+            title="Edit task"
+            style={{
+              opacity: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: "var(--radius)",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: "var(--text-subtle)",
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = "var(--surface-3)";
+              e.currentTarget.style.color = "var(--primary)";
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-subtle)";
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
+          </button>
+
+          <button
+            className="task-action task-del"
+            onClick={() => onDelete(task.id)}
+            title="Delete task"
+            style={{
+              opacity: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: "var(--radius)",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: "var(--text-subtle)",
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = "var(--surface-3)";
+              e.currentTarget.style.color = "var(--danger)";
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-subtle)";
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6M14 11v6" />
+              <path d="M9 6V4h6v2" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
