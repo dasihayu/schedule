@@ -19,13 +19,51 @@ interface Task {
   title: string;
   status: TaskStatus;
   projectId: string;
+  completedAt: string | null;
   createdAt: string;
+  orderIndex: number;
 }
 interface CopyTask {
   title: string;
   status: TaskStatus;
   projectId: string;
   projectName: string;
+}
+
+async function readJsonSafely<T>(res: Response): Promise<T | null> {
+  const text = await res.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+function reorderTasksInSection(
+  list: Task[],
+  taskId: string,
+  sectionStatus: TaskStatus,
+  direction: "up" | "down",
+): Task[] | null {
+  const sectionTasks = list.filter((task) => task.status === sectionStatus);
+  const fromSectionIndex = sectionTasks.findIndex((task) => task.id === taskId);
+  if (fromSectionIndex < 0) return null;
+
+  const toSectionIndex =
+    direction === "up" ? fromSectionIndex - 1 : fromSectionIndex + 1;
+  if (toSectionIndex < 0 || toSectionIndex >= sectionTasks.length) return null;
+
+  const fromTaskId = sectionTasks[fromSectionIndex].id;
+  const toTaskId = sectionTasks[toSectionIndex].id;
+  const fromIndex = list.findIndex((task) => task.id === fromTaskId);
+  const toIndex = list.findIndex((task) => task.id === toTaskId);
+  if (fromIndex < 0 || toIndex < 0) return null;
+
+  const next = [...list];
+  [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+  return next;
 }
 
 // ── Spinner ───────────────────────────────────────────────────
@@ -282,6 +320,7 @@ export default function TasksPage() {
   const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [reorderingTaskId, setReorderingTaskId] = useState<string | null>(null);
   const taskInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -310,11 +349,27 @@ export default function TasksPage() {
 
   const loadProjects = useCallback(async () => {
     if (status !== "authenticated") return;
-    const res = await fetch("/api/projects");
-    const { projects: list } = await res.json();
-    setProjects(list ?? []);
-    if (list?.length > 0 && !selectedProjectId)
-      setSelectedProjectId(list[0].id);
+
+    try {
+      const res = await fetch("/api/projects");
+      const data = await readJsonSafely<{
+        projects?: Project[];
+        error?: string;
+      }>(res);
+
+      if (!res.ok) {
+        setToast(`Error: ${data?.error ?? "Failed to load projects"}`);
+        return;
+      }
+
+      const list = data?.projects ?? [];
+      setProjects(list);
+      if (list.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(list[0].id);
+      }
+    } catch {
+      setToast("Network error. Please try again.");
+    }
   }, [status, selectedProjectId]);
 
   useEffect(() => {
@@ -324,10 +379,21 @@ export default function TasksPage() {
   const loadTasks = useCallback(async (projectId: string) => {
     if (!projectId) return;
     setTasksLoading(true);
+
     try {
       const res = await fetch(`/api/tasks?projectId=${projectId}`);
-      const { tasks: list } = await res.json();
-      setTasks(list ?? []);
+      const data = await readJsonSafely<{ tasks?: Task[]; error?: string }>(
+        res,
+      );
+
+      if (!res.ok) {
+        setToast(`Error: ${data?.error ?? "Failed to load tasks"}`);
+        return;
+      }
+
+      setTasks(data?.tasks ?? []);
+    } catch {
+      setToast("Network error. Please try again.");
     } finally {
       setTasksLoading(false);
     }
@@ -407,15 +473,69 @@ export default function TasksPage() {
 
   const handleToggle = async (task: Task) => {
     const next: TaskStatus = task.status === "DONE" ? "PENDING" : "DONE";
+    const nextCompletedAt = next === "DONE" ? new Date().toISOString() : null;
+
     setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: next } : t)),
+      prev.map((t) =>
+        t.id === task.id
+          ? { ...t, status: next, completedAt: nextCompletedAt }
+          : t,
+      ),
     );
-    await fetch("/api/tasks", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: task.id, status: next }),
-    });
-    loadTasks(selectedProjectId);
+    try {
+      await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, status: next }),
+      });
+    } catch {
+      setToast("Network error. Please try again.");
+    } finally {
+      loadTasks(selectedProjectId);
+    }
+  };
+
+  const handleReorder = async (task: Task, direction: "up" | "down") => {
+    if (!selectedProjectId || reorderingTaskId) return;
+
+    const nextTasks = reorderTasksInSection(
+      tasks,
+      task.id,
+      task.status,
+      direction,
+    );
+    if (!nextTasks) return;
+
+    const previousTasks = tasks;
+    setTasks(nextTasks);
+    setReorderingTaskId(task.id);
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          orderedIds: nextTasks.map((t) => t.id),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed");
+      }
+
+      if (Array.isArray(data.tasks)) {
+        setTasks(data.tasks);
+      }
+    } catch (err) {
+      setTasks(previousTasks);
+      setToast(
+        `Error: ${err instanceof Error ? err.message : "Failed to reorder task"}`,
+      );
+    } finally {
+      setReorderingTaskId((current) => (current === task.id ? null : current));
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -559,6 +679,7 @@ export default function TasksPage() {
 
   const doneTasks = tasks.filter((t) => t.status === "DONE");
   const pendingTasks = tasks.filter((t) => t.status === "PENDING");
+  const isReordering = reorderingTaskId !== null;
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const hasWorkProjects = projects.some(
     (p) => p.label?.toLowerCase() === "work",
@@ -1158,9 +1279,15 @@ export default function TasksPage() {
                         task={task}
                         index={i}
                         onToggle={handleToggle}
+                        onMoveUp={() => void handleReorder(task, "up")}
+                        onMoveDown={() => void handleReorder(task, "down")}
+                        canMoveUp={i > 0}
+                        canMoveDown={i < pendingTasks.length - 1}
                         onEdit={handleEditTask}
                         onDelete={handleDelete}
                         saving={savingTaskId === task.id}
+                        moving={reorderingTaskId === task.id}
+                        reorderBusy={isReordering}
                       />
                     ))}
                   </div>
@@ -1203,9 +1330,15 @@ export default function TasksPage() {
                         task={task}
                         index={i}
                         onToggle={handleToggle}
+                        onMoveUp={() => void handleReorder(task, "up")}
+                        onMoveDown={() => void handleReorder(task, "down")}
+                        canMoveUp={i > 0}
+                        canMoveDown={i < doneTasks.length - 1}
                         onEdit={handleEditTask}
                         onDelete={handleDelete}
                         saving={savingTaskId === task.id}
+                        moving={reorderingTaskId === task.id}
+                        reorderBusy={isReordering}
                       />
                     ))}
                   </div>
@@ -1224,7 +1357,7 @@ export default function TasksPage() {
                   fontStyle: "italic",
                 }}
               >
-                Done tasks are hidden 24 hours after creation
+                Done tasks are hidden 24 hours after being marked done
               </div>
             )}
           </div>
@@ -1279,16 +1412,28 @@ function TaskRow({
   task,
   index,
   onToggle,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
   onEdit,
   onDelete,
   saving,
+  moving,
+  reorderBusy,
 }: {
   task: Task;
   index: number;
   onToggle: (t: Task) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onEdit: (task: Task, nextTitle: string) => Promise<boolean>;
   onDelete: (id: string) => void;
   saving: boolean;
+  moving: boolean;
+  reorderBusy: boolean;
 }) {
   const isDone = task.status === "DONE";
   const [isEditing, setIsEditing] = useState(false);
@@ -1330,7 +1475,7 @@ function TaskRow({
       {/* Checkbox */}
       <div
         onClick={() => {
-          if (!isEditing && !saving) onToggle(task);
+          if (!isEditing && !saving && !moving && !reorderBusy) onToggle(task);
         }}
         title={isDone ? "Mark as pending" : "Mark as done"}
         style={{
@@ -1339,7 +1484,10 @@ function TaskRow({
           borderRadius: 4,
           border: isDone ? "none" : "1.5px solid var(--border)",
           background: isDone ? "var(--success)" : "var(--surface-2)",
-          cursor: isEditing || saving ? "default" : "pointer",
+          cursor:
+            isEditing || saving || moving || reorderBusy
+              ? "default"
+              : "pointer",
           flexShrink: 0,
           transition: "background 0.15s, border-color 0.15s",
           display: "flex",
@@ -1485,10 +1633,99 @@ function TaskRow({
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
             className="task-action"
+            onClick={onMoveUp}
+            disabled={!canMoveUp || moving || reorderBusy || saving}
+            title="Move up"
+            style={{
+              opacity: canMoveUp && !reorderBusy ? 0.8 : 0.28,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: "var(--radius)",
+              border: "none",
+              background: "transparent",
+              cursor:
+                canMoveUp && !reorderBusy && !moving && !saving
+                  ? "pointer"
+                  : "default",
+              color: "var(--text-subtle)",
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseOver={(e) => {
+              if (!canMoveUp || reorderBusy || moving || saving) return;
+              e.currentTarget.style.background = "var(--surface-3)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-subtle)";
+            }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
+          </button>
+
+          <button
+            className="task-action"
+            onClick={onMoveDown}
+            disabled={!canMoveDown || moving || reorderBusy || saving}
+            title="Move down"
+            style={{
+              opacity: canMoveDown && !reorderBusy ? 0.8 : 0.28,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: "var(--radius)",
+              border: "none",
+              background: "transparent",
+              cursor:
+                canMoveDown && !reorderBusy && !moving && !saving
+                  ? "pointer"
+                  : "default",
+              color: "var(--text-subtle)",
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseOver={(e) => {
+              if (!canMoveDown || reorderBusy || moving || saving) return;
+              e.currentTarget.style.background = "var(--surface-3)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-subtle)";
+            }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          <button
+            className="task-action"
             onClick={startEdit}
+            disabled={moving || reorderBusy || saving}
             title="Edit task"
             style={{
-              opacity: 0,
+              opacity: moving || reorderBusy ? 0.35 : 0,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1497,11 +1734,12 @@ function TaskRow({
               borderRadius: "var(--radius)",
               border: "none",
               background: "transparent",
-              cursor: "pointer",
+              cursor: moving || reorderBusy || saving ? "default" : "pointer",
               color: "var(--text-subtle)",
               transition: "background 0.12s, color 0.12s",
             }}
             onMouseOver={(e) => {
+              if (moving || reorderBusy || saving) return;
               e.currentTarget.style.background = "var(--surface-3)";
               e.currentTarget.style.color = "var(--primary)";
             }}
@@ -1526,9 +1764,10 @@ function TaskRow({
           <button
             className="task-action task-del"
             onClick={() => onDelete(task.id)}
+            disabled={moving || reorderBusy || saving}
             title="Delete task"
             style={{
-              opacity: 0,
+              opacity: moving || reorderBusy ? 0.35 : 0,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1537,11 +1776,12 @@ function TaskRow({
               borderRadius: "var(--radius)",
               border: "none",
               background: "transparent",
-              cursor: "pointer",
+              cursor: moving || reorderBusy || saving ? "default" : "pointer",
               color: "var(--text-subtle)",
               transition: "background 0.12s, color 0.12s",
             }}
             onMouseOver={(e) => {
+              if (moving || reorderBusy || saving) return;
               e.currentTarget.style.background = "var(--surface-3)";
               e.currentTarget.style.color = "var(--danger)";
             }}
